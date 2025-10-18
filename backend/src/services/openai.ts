@@ -1,4 +1,8 @@
 import OpenAI from "openai";
+import dotenv from "dotenv";
+
+// Ensure environment variables are loaded
+dotenv.config();
 
 /**
  * OpenAI service for embeddings and completions

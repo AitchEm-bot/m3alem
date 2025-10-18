@@ -5,6 +5,7 @@ import WebSocket from "ws";
 import { createServer } from "http";
 import ragRoutes from "./routes/rag";
 import uploadRoutes from "./routes/upload";
+import conversationsRoutes from "./routes/conversations";
 import { handleWebSocketConnection } from "./websocket/handler";
 
 // Load environment variables
@@ -39,6 +40,7 @@ app.get("/", (req, res) => {
 // Routes
 app.use("/api/rag", ragRoutes);
 app.use("/api", uploadRoutes);
+app.use("/api/conversations", conversationsRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

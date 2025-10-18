@@ -5,13 +5,15 @@ import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Navigation } from "@/components/navigation"
 import { FloatingSphere } from "@/components/floating-sphere"
+import { ConversationList } from "@/components/ConversationList"
+import { useConversations } from "@/hooks/useConversations"
 import { Flame, BookOpen, Clock, Sparkles } from "lucide-react"
 import Link from "next/link"
 
 export function Dashboard() {
   const [userName] = useState("Sarah")
   const [streak] = useState(7)
-  const [recentTopics] = useState(["Quadratic Equations", "World War II", "Photosynthesis"])
+  const { conversations, loading } = useConversations()
 
   return (
     <div className="min-h-screen bg-background">
@@ -63,21 +65,18 @@ export function Dashboard() {
             </div>
           </Card>
 
-          {/* Recent Topics */}
+          {/* Total Conversations */}
           <Card className="p-6 shadow-md hover:shadow-lg transition-shadow border border-accent/20">
             <div className="flex items-start gap-4">
               <div className="p-3 rounded-xl bg-accent/20">
                 <BookOpen className="w-6 h-6 text-primary" />
               </div>
               <div className="flex-1">
-                <p className="text-sm text-muted-foreground mb-2">Recent Topics</p>
-                <div className="space-y-1">
-                  {recentTopics.slice(0, 2).map((topic, i) => (
-                    <p key={i} className="text-sm font-medium truncate">
-                      {topic}
-                    </p>
-                  ))}
-                </div>
+                <p className="text-sm text-muted-foreground mb-1">Total Conversations</p>
+                <p className="text-3xl font-bold text-primary">
+                  {loading ? "..." : conversations.length}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">All time</p>
               </div>
             </div>
           </Card>
@@ -88,32 +87,44 @@ export function Dashboard() {
               <div className="p-3 rounded-xl bg-accent/20">
                 <Clock className="w-6 h-6 text-primary" />
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-muted-foreground mb-1">Continue Learning</p>
-                <p className="text-lg font-semibold">Quadratic Equations</p>
-                <Link href="/chat">
-                  <Button variant="link" className="text-primary p-0 h-auto mt-1">
-                    Resume →
-                  </Button>
-                </Link>
+                {loading ? (
+                  <p className="text-sm">Loading...</p>
+                ) : conversations.length > 0 ? (
+                  <>
+                    <p className="text-lg font-semibold truncate">{conversations[0].title}</p>
+                    <Link href={`/chat/${conversations[0].id}`}>
+                      <Button variant="link" className="text-primary p-0 h-auto mt-1">
+                        Resume →
+                      </Button>
+                    </Link>
+                  </>
+                ) : (
+                  <Link href="/chat">
+                    <Button variant="link" className="text-primary p-0 h-auto">
+                      Start chatting →
+                    </Button>
+                  </Link>
+                )}
               </div>
             </div>
           </Card>
         </div>
 
-        {/* Quick Access Subjects */}
+        {/* Recent Conversations */}
         <div>
-          <h3 className="text-xl font-semibold mb-4">Quick Access</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {["Mathematics", "Science", "History", "Languages"].map((subject) => (
-              <Card
-                key={subject}
-                className="p-6 text-center hover:border-accent transition-all cursor-pointer shadow-sm hover:shadow-md"
-              >
-                <p className="font-medium">{subject}</p>
-              </Card>
-            ))}
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-semibold">Recent Conversations</h3>
+            {conversations.length > 3 && (
+              <Link href="/chat">
+                <Button variant="link" className="text-primary">
+                  View all →
+                </Button>
+              </Link>
+            )}
           </div>
+          <ConversationList conversations={conversations} maxItems={3} />
         </div>
       </main>
 

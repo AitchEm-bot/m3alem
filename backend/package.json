@@ -9,29 +9,35 @@
     "start": "node dist/index.js",
     "test-rag": "bash scripts/test-rag.sh"
   },
-  "keywords": ["ai", "education", "rag", "websocket"],
+  "keywords": [
+    "ai",
+    "education",
+    "rag",
+    "websocket"
+  ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
-    "ws": "^8.14.2",
-    "openai": "^4.20.1",
     "@supabase/supabase-js": "^2.38.4",
-    "multer": "^1.4.5-lts.1",
-    "pdf-parse": "^1.1.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "uuid": "^9.0.1"
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "openai": "^4.20.1",
+    "pdf-parse": "^1.1.1",
+    "uuid": "^9.0.1",
+    "ws": "^8.14.2"
   },
   "devDependencies": {
-    "@types/express": "^4.17.20",
-    "@types/ws": "^8.5.8",
-    "@types/multer": "^1.4.10",
     "@types/cors": "^2.8.15",
-    "@types/uuid": "^9.0.6",
+    "@types/express": "^4.17.20",
+    "@types/multer": "^1.4.10",
     "@types/node": "^20.9.0",
-    "typescript": "^5.2.2",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/uuid": "^9.0.6",
+    "@types/ws": "^8.5.8",
     "nodemon": "^3.0.1",
-    "ts-node": "^10.9.1"
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
   }
 }

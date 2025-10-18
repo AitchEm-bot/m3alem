@@ -54,3 +54,26 @@ export interface ImageUploadResult {
   ocr_text?: string;
   filename: string;
 }
+
+export interface Conversation {
+  id: string;
+  title: string;
+  created_at: Date;
+  updated_at: Date;
+  user_id?: string;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: RAGQueryResult[];
+  image_data?: string;
+  image_filename?: string;
+  created_at: Date;
+}
+
+export interface ConversationWithMessages extends Conversation {
+  messages: Message[];
+}

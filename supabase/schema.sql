@@ -101,3 +101,66 @@ $$;
 -- FROM rag_documents
 -- GROUP BY source
 -- ORDER BY source;
+
+-- ============================================
+-- Conversation History Tables
+-- ============================================
+
+-- Enable UUID extension if not already enabled
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Conversations table
+CREATE TABLE IF NOT EXISTS conversations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  title TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  user_id TEXT -- Nullable for MVP (no auth yet)
+);
+
+-- Messages table
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content TEXT NOT NULL,
+  sources JSONB, -- RAG sources in JSON format
+  image_data TEXT, -- Base64 encoded image data
+  image_filename TEXT, -- Original filename of uploaded image
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+
+-- Function to auto-update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to auto-update updated_at on conversations
+DROP TRIGGER IF EXISTS update_conversations_updated_at ON conversations;
+CREATE TRIGGER update_conversations_updated_at
+  BEFORE UPDATE ON conversations
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- Function to generate conversation title from first message
+CREATE OR REPLACE FUNCTION generate_conversation_title(first_message TEXT)
+RETURNS TEXT AS $$
+BEGIN
+  -- Truncate to 50 characters and add ellipsis if needed
+  IF LENGTH(first_message) > 50 THEN
+    RETURN SUBSTRING(first_message FROM 1 FOR 50) || '...';
+  ELSE
+    RETURN first_message;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
