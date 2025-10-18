@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { cn, formatRelativeTime } from "@/lib/utils";
-import { Bot, User } from "lucide-react";
+import { Bot, User, Copy, Check } from "lucide-react";
 import { ChatMessage as ChatMessageType } from "@/hooks/useRealtime";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -25,6 +27,17 @@ interface ChatMessageProps {
 export function ChatMessage({ message, className }: ChatMessageProps) {
   const isUser = message.role === "user";
   const isPartial = message.isPartial;
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy text:", err);
+    }
+  };
 
   return (
     <div
@@ -50,15 +63,32 @@ export function ChatMessage({ message, className }: ChatMessageProps) {
 
         {/* Message Content */}
         <div className="space-y-2 min-w-0">
-          <div className={cn("flex items-center space-x-2", isUser && "flex-row-reverse space-x-reverse")}>
-            <span className="font-medium text-sm">
-              {isUser ? "You" : "M3alem"}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {formatRelativeTime(message.timestamp)}
-            </span>
-            {isPartial && (
-              <span className="text-xs text-teal font-medium">typing...</span>
+          <div className={cn("flex items-center justify-between", isUser && "flex-row-reverse")}>
+            <div className={cn("flex items-center space-x-2", isUser && "flex-row-reverse space-x-reverse")}>
+              <span className="font-medium text-sm">
+                {isUser ? "You" : "M3alem"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {formatRelativeTime(message.timestamp)}
+              </span>
+              {isPartial && (
+                <span className="text-xs text-teal font-medium">typing...</span>
+              )}
+            </div>
+            {!isUser && !isPartial && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={handleCopy}
+                title={copied ? "Copied!" : "Copy message"}
+              >
+                {copied ? (
+                  <Check className="h-3 w-3 text-teal" />
+                ) : (
+                  <Copy className="h-3 w-3" />
+                )}
+              </Button>
             )}
           </div>
 

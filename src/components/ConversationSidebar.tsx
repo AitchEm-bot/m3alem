@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, MessageSquare } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, MessageSquare, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -12,6 +12,7 @@ interface ConversationSidebarProps {
   conversations: Conversation[];
   currentConversationId?: string | null;
   onNewChat: () => void;
+  onDeleteConversation: (id: string) => void;
   loading?: boolean;
 }
 
@@ -19,6 +20,7 @@ export function ConversationSidebar({
   conversations,
   currentConversationId,
   onNewChat,
+  onDeleteConversation,
   loading = false,
 }: ConversationSidebarProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -26,6 +28,16 @@ export function ConversationSidebar({
 
   const handleConversationClick = (id: string) => {
     router.push(`/chat/${id}`);
+  };
+
+  const handleDelete = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // Prevent navigation when clicking delete
+    if (confirm("Are you sure you want to delete this conversation?")) {
+      onDeleteConversation(id);
+      if (currentConversationId === id) {
+        router.push("/chat");
+      }
+    }
   };
 
   return (
@@ -78,32 +90,41 @@ export function ConversationSidebar({
           ) : (
             <div className="space-y-2">
               {conversations.map((conversation) => (
-                <button
+                <div
                   key={conversation.id}
-                  onClick={() => handleConversationClick(conversation.id)}
                   className={cn(
-                    "w-full text-left px-3 py-2 rounded-lg transition-colors",
+                    "group relative w-full text-left px-3 py-2 rounded-lg transition-colors cursor-pointer",
                     "hover:bg-muted",
                     currentConversationId === conversation.id &&
                       "bg-primary/10 border border-primary/20",
                     isCollapsed && "px-2"
                   )}
+                  onClick={() => handleConversationClick(conversation.id)}
                   title={isCollapsed ? conversation.title : undefined}
                 >
                   <div className="flex items-center gap-2">
                     <MessageSquare className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                     {!isCollapsed && (
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {conversation.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {formatDate(conversation.updated_at)}
-                        </p>
-                      </div>
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {conversation.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {formatDate(conversation.updated_at)}
+                          </p>
+                        </div>
+                        <button
+                          className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity inline-flex items-center justify-center rounded-md hover:bg-accent hover:text-accent-foreground"
+                          onClick={(e) => handleDelete(e, conversation.id)}
+                          aria-label="Delete conversation"
+                        >
+                          <Trash2 className="h-3 w-3 text-destructive" />
+                        </button>
+                      </>
                     )}
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}

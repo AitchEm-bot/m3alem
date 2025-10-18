@@ -19,7 +19,7 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
   const router = useRouter()
-  const { conversations, loading: conversationsLoading, fetchConversation } = useConversations()
+  const { conversations, loading: conversationsLoading, fetchConversation, deleteConversation } = useConversations()
   const [initialMessages, setInitialMessages] = useState<ChatMessageType[]>([])
   const [isLoadingConversation, setIsLoadingConversation] = useState(false)
 
@@ -96,6 +96,7 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
           conversations={conversations}
           currentConversationId={currentConversationId}
           onNewChat={handleNewChat}
+          onDeleteConversation={deleteConversation}
           loading={conversationsLoading}
         />
 

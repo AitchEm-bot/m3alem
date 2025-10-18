@@ -94,6 +94,85 @@ export function handleWebSocketConnection(ws: WebSocket, req: any) {
 }
 
 /**
+ * Load conversation history and send to OpenAI
+ */
+async function loadConversationHistory(connection: ClientConnection) {
+  if (!connection.conversationId || !connection.openaiWs) {
+    return;
+  }
+
+  try {
+    console.log(`[WS] Loading conversation history for ${connection.conversationId}`);
+
+    // Fetch messages from database
+    const { data: messages, error } = await supabaseService
+      .getClient()
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", connection.conversationId)
+      .order("created_at", { ascending: true });
+
+    if (error) {
+      console.error("[WS] Error loading conversation history:", error);
+      return;
+    }
+
+    if (!messages || messages.length === 0) {
+      console.log("[WS] No previous messages found");
+      return;
+    }
+
+    console.log(`[WS] Found ${messages.length} previous messages`);
+
+    // Send each message to OpenAI to rebuild context
+    // User messages use 'input_text', assistant messages need different structure
+    for (const msg of messages) {
+      let conversationItem;
+
+      if (msg.role === "user") {
+        // User messages use input_text
+        conversationItem = {
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "user",
+            content: [
+              {
+                type: "input_text",
+                text: msg.content,
+              },
+            ],
+          },
+        };
+      } else {
+        // Assistant messages use text content
+        conversationItem = {
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: msg.content,
+              },
+            ],
+          },
+        };
+      }
+
+      if (connection.openaiWs.readyState === WebSocket.OPEN) {
+        connection.openaiWs.send(JSON.stringify(conversationItem));
+      }
+    }
+
+    console.log("[WS] Conversation history loaded successfully");
+  } catch (error) {
+    console.error("[WS] Failed to load conversation history:", error);
+  }
+}
+
+/**
  * Initialize connection to OpenAI Realtime API
  */
 function initializeOpenAIConnection(connection: ClientConnection) {
@@ -139,6 +218,15 @@ function initializeOpenAIConnection(connection: ClientConnection) {
 - Using context from textbooks when provided
 - Citing sources (page numbers) when referencing material
 
+IMPORTANT - Math Formatting:
+- For inline math expressions, use single dollar signs: $E=mc^2$
+- For block equations, use double dollar signs on separate lines:
+$$
+F = ma
+$$
+- NEVER use parentheses like \\( \\) or \\[ \\] for math
+- Always use markdown formatting for bold (**text**), italic (*text*), headers (# heading), lists, and code blocks
+
 Keep responses clear, educational, and engaging.`,
         voice: "alloy", // Required even for text-only mode
         input_audio_format: "pcm16",
@@ -151,6 +239,13 @@ Keep responses clear, educational, and engaging.`,
     };
 
     connection.openaiWs!.send(JSON.stringify(sessionUpdate));
+
+    // Load conversation history if returning to existing conversation
+    if (connection.conversationId) {
+      loadConversationHistory(connection).catch((error) => {
+        console.error("[WS] Failed to load conversation history:", error);
+      });
+    }
   });
 
   connection.openaiWs.on("message", async (data: Buffer) => {
