@@ -114,6 +114,8 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-teal: #4fb7b3;
+  --color-mint: #a8fbd3;
 }
 
 @layer base {

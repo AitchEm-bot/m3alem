@@ -4,6 +4,14 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn, formatRelativeTime } from "@/lib/utils";
 import { Bot, User } from "lucide-react";
 import { ChatMessage as ChatMessageType } from "@/hooks/useRealtime";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
+import rehypeRaw from "rehype-raw";
+import rehypeHighlight from "rehype-highlight";
+import "katex/dist/katex.min.css";
+import "highlight.js/styles/github.css";
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -56,7 +64,7 @@ export function ChatMessage({ message, className }: ChatMessageProps) {
 
           <div
             className={cn(
-              "text-sm leading-relaxed whitespace-pre-wrap break-words rounded-2xl px-4 py-3",
+              "text-sm leading-relaxed break-words rounded-2xl px-4 py-3",
               isUser
                 ? "bg-primary text-primary-foreground"
                 : "bg-muted"
@@ -72,7 +80,80 @@ export function ChatMessage({ message, className }: ChatMessageProps) {
                 />
               </div>
             )}
-            {message.content}
+
+            {/* Render markdown and LaTeX */}
+            <div className="prose prose-sm max-w-none dark:prose-invert">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[rehypeKatex, rehypeRaw, rehypeHighlight]}
+                components={{
+                // Style strong text with teal accent
+                strong: ({ node, ...props }) => (
+                  <strong className="font-bold text-teal" {...props} />
+                ),
+                // Style emphasis with teal accent
+                em: ({ node, ...props }) => (
+                  <em className="italic text-teal/80" {...props} />
+                ),
+                // Style headings with teal accent
+                h1: ({ node, ...props }) => (
+                  <h1 className="text-2xl font-bold text-teal mt-4 mb-2" {...props} />
+                ),
+                h2: ({ node, ...props }) => (
+                  <h2 className="text-xl font-semibold text-teal mt-3 mb-2" {...props} />
+                ),
+                h3: ({ node, ...props }) => (
+                  <h3 className="text-lg font-semibold text-teal mt-2 mb-1" {...props} />
+                ),
+                // Style code blocks
+                code: ({ node, inline, className, children, ...props }: any) => {
+                  if (inline) {
+                    return (
+                      <code
+                        className="bg-mint/30 text-teal px-1.5 py-0.5 rounded font-mono text-xs"
+                        {...props}
+                      >
+                        {children}
+                      </code>
+                    );
+                  }
+                  return (
+                    <code
+                      className={cn("block bg-mint/10 p-3 rounded-lg overflow-x-auto font-mono text-xs", className)}
+                      {...props}
+                    >
+                      {children}
+                    </code>
+                  );
+                },
+                // Style pre blocks
+                pre: ({ node, ...props }) => (
+                  <pre className="bg-mint/10 p-3 rounded-lg overflow-x-auto my-2" {...props} />
+                ),
+                // Style lists
+                ul: ({ node, ...props }) => (
+                  <ul className="list-disc list-inside my-2 space-y-1" {...props} />
+                ),
+                ol: ({ node, ...props }) => (
+                  <ol className="list-decimal list-inside my-2 space-y-1" {...props} />
+                ),
+                // Style blockquotes
+                blockquote: ({ node, ...props }) => (
+                  <blockquote className="border-l-4 border-teal pl-4 italic my-2" {...props} />
+                ),
+                // Style links
+                a: ({ node, ...props }) => (
+                  <a className="text-teal hover:underline" {...props} />
+                ),
+                // Style paragraphs
+                p: ({ node, ...props }) => (
+                  <p className="my-2 leading-relaxed" {...props} />
+                ),
+              }}
+              >
+                {message.content}
+              </ReactMarkdown>
+            </div>
           </div>
 
           {/* Loading indicator for partial messages */}
