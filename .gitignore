@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /out/
+.next
 
 # production
 /build
@@ -39,3 +40,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+node_modules
+.claude
+prompt.txt
+OpenAI.md
+RAG.md
+deployment_notes.md
+GETTING_STARTED.md
+README_NEW.md
+package.txt
