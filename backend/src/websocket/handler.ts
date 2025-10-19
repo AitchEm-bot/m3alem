@@ -17,10 +17,13 @@ interface ClientConnection {
   accumulatedText: string;
   isFirstMessage: boolean;
   isVoiceCallActive: boolean; // Track if voice call is active
+  isSTTSessionActive: boolean; // Track if STT-only session is active
   accumulatedTranscript: string; // Accumulate user speech transcript during call
+  sttTranscript: string; // Accumulate STT transcript (for mic button)
   hasAudioInBuffer: boolean; // Track if there's audio in the buffer
   isResponseInProgress: boolean; // Track if OpenAI is currently generating a response
   pendingBufferCommit: boolean; // Track if we need to commit buffer after current response finishes
+  sttChunkCounter: number; // Count audio chunks for STT batching
 }
 
 export function handleWebSocketConnection(ws: WebSocket, req: any) {
@@ -35,10 +38,13 @@ export function handleWebSocketConnection(ws: WebSocket, req: any) {
     accumulatedText: "",
     isFirstMessage: true,
     isVoiceCallActive: false,
+    isSTTSessionActive: false,
     accumulatedTranscript: "",
+    sttTranscript: "",
     hasAudioInBuffer: false,
     isResponseInProgress: false,
     pendingBufferCommit: false,
+    sttChunkCounter: 0,
   };
 
   // Initialize OpenAI Realtime API connection
@@ -95,6 +101,20 @@ export function handleWebSocketConnection(ws: WebSocket, req: any) {
         case "commit_audio":
           console.log("[WS] Manual audio commit requested");
           await handleManualCommit(connection);
+          break;
+
+        case "start_stt_session":
+          console.log("[WS] Starting STT session");
+          await handleStartSTTSession(connection);
+          break;
+
+        case "stt_audio_chunk":
+          await handleSTTAudioChunk(connection, message);
+          break;
+
+        case "end_stt_session":
+          console.log("[WS] Ending STT session");
+          await handleEndSTTSession(connection);
           break;
 
         default:
@@ -281,6 +301,10 @@ Keep responses clear, educational, and engaging.`,
   connection.openaiWs.on("message", async (data: Buffer) => {
     try {
       const event = JSON.parse(data.toString());
+      // Log full event for transcription-related events
+      if (event.type && event.type.includes("transcription")) {
+        console.log("[WS] OpenAI transcription event:", JSON.stringify(event, null, 2));
+      }
       await handleOpenAIEvent(connection, event);
     } catch (error) {
       console.error("[WS] Error parsing OpenAI message:", error);
@@ -431,73 +455,100 @@ async function handleOpenAIEvent(connection: ClientConnection, event: any) {
       connection.hasAudioInBuffer = false;
       break;
 
-    case "conversation.item.input_audio_transcription.completed":
-      // User's audio has been transcribed
-      if (connection.isVoiceCallActive && event.transcript) {
-        console.log("[WS] User audio transcribed:", event.transcript);
+    case "conversation.item.input_audio_transcription.delta":
+      // Real-time transcription deltas
+      if (connection.isSTTSessionActive && event.delta) {
+        console.log("[WS] STT transcription delta:", event.delta);
 
-        // Create conversation if this is the first message
-        if (!connection.conversationId && connection.isFirstMessage) {
-          try {
-            const title = event.transcript.length > 50
-              ? event.transcript.substring(0, 50) + "..."
-              : event.transcript;
+        // Accumulate transcript
+        connection.sttTranscript += event.delta;
 
-            const { data, error } = await supabaseService.getClient()
-              .from("conversations")
-              .insert({ title })
-              .select()
-              .single();
-
-            if (error) {
-              throw new Error(error.message);
-            }
-
-            connection.conversationId = data.id;
-            console.log(`[WS] Created new conversation: ${connection.conversationId}`);
-
-            connection.clientWs.send(
-              JSON.stringify({
-                type: "conversation_created",
-                data: { conversation_id: connection.conversationId },
-              })
-            );
-          } catch (error) {
-            console.error("[WS] Error creating conversation:", error);
-          }
-        }
-
-        connection.isFirstMessage = false;
-
-        // Save user voice message to database
-        if (connection.conversationId) {
-          try {
-            await supabaseService.getClient()
-              .from("messages")
-              .insert({
-                conversation_id: connection.conversationId,
-                role: "user",
-                content: event.transcript,
-                is_spoken: true,
-              });
-
-            console.log(`[WS] Saved user voice message to conversation ${connection.conversationId}`);
-          } catch (error) {
-            console.error("[WS] Error saving user voice message:", error);
-          }
-        }
-
-        // Accumulate user transcript for session tracking
-        connection.accumulatedTranscript += event.transcript + " ";
-
-        // Send transcript to client as new user message
+        // Send delta to client for real-time display
         connection.clientWs.send(
           JSON.stringify({
-            type: "user_audio_transcript",
-            text: event.transcript,
-            is_spoken: true,
+            type: "stt_transcript_delta",
+            text: event.delta,
+            is_final: false,
           })
         );
+      }
+      break;
+
+    case "conversation.item.input_audio_transcription.completed":
+      // User's audio has been transcribed
+      if (event.transcript) {
+        // Handle STT session (mic button transcription)
+        if (connection.isSTTSessionActive) {
+          console.log("[WS] STT transcription completed:", event.transcript);
+          // Deltas are already being sent, completed event is just for logging
+        }
+        // Handle voice call transcription
+        else if (connection.isVoiceCallActive) {
+          console.log("[WS] User audio transcribed:", event.transcript);
+
+          // Create conversation if this is the first message
+          if (!connection.conversationId && connection.isFirstMessage) {
+            try {
+              const title = event.transcript.length > 50
+                ? event.transcript.substring(0, 50) + "..."
+                : event.transcript;
+
+              const { data, error } = await supabaseService.getClient()
+                .from("conversations")
+                .insert({ title })
+                .select()
+                .single();
+
+              if (error) {
+                throw new Error(error.message);
+              }
+
+              connection.conversationId = data.id;
+              console.log(`[WS] Created new conversation: ${connection.conversationId}`);
+
+              connection.clientWs.send(
+                JSON.stringify({
+                  type: "conversation_created",
+                  data: { conversation_id: connection.conversationId },
+                })
+              );
+            } catch (error) {
+              console.error("[WS] Error creating conversation:", error);
+            }
+          }
+
+          connection.isFirstMessage = false;
+
+          // Save user voice message to database
+          if (connection.conversationId) {
+            try {
+              await supabaseService.getClient()
+                .from("messages")
+                .insert({
+                  conversation_id: connection.conversationId,
+                  role: "user",
+                  content: event.transcript,
+                  is_spoken: true,
+                });
+
+              console.log(`[WS] Saved user voice message to conversation ${connection.conversationId}`);
+            } catch (error) {
+              console.error("[WS] Error saving user voice message:", error);
+            }
+          }
+
+          // Accumulate user transcript for session tracking
+          connection.accumulatedTranscript += event.transcript + " ";
+
+          // Send transcript to client as new user message
+          connection.clientWs.send(
+            JSON.stringify({
+              type: "user_audio_transcript",
+              text: event.transcript,
+              is_spoken: true,
+            })
+          );
+        }
       }
       break;
 
@@ -1145,3 +1196,170 @@ async function handleManualCommit(connection: ClientConnection) {
     console.error("[WS] Error handling manual commit:", error);
   }
 }
+
+/**
+ * Handle starting STT (Speech-to-Text) session
+ * Similar to voice call but transcription-only (no AI response)
+ */
+async function handleStartSTTSession(connection: ClientConnection) {
+  if (!connection.openaiWs || connection.openaiWs.readyState !== WebSocket.OPEN) {
+    console.error("[WS] OpenAI connection not ready for STT");
+    return;
+  }
+
+  try {
+    console.log("[WS] Switching to STT mode");
+    connection.isSTTSessionActive = true;
+    connection.sttTranscript = "";
+    connection.sttChunkCounter = 0; // Reset chunk counter
+
+    // Update session for STT: transcription only, no responses
+    const sessionUpdate = {
+      type: "session.update",
+      session: {
+        modalities: ["text"], // Text only - no audio responses
+        voice: "alloy",
+        input_audio_format: "pcm16",
+        output_audio_format: "pcm16",
+        input_audio_transcription: {
+          model: "whisper-1", // Enable transcription
+        },
+        turn_detection: null, // Manual mode
+        temperature: 0.8,
+      },
+    };
+
+    connection.openaiWs.send(JSON.stringify(sessionUpdate));
+
+    // Send confirmation to client
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "stt_session_started",
+      })
+    );
+
+    console.log("[WS] STT session started");
+  } catch (error: any) {
+    console.error("[WS] Error starting STT session:", error);
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "error",
+        error: "Failed to start STT session",
+      })
+    );
+  }
+}
+
+/**
+ * Handle STT audio chunk
+ */
+async function handleSTTAudioChunk(connection: ClientConnection, message: WSMessage) {
+  if (!connection.openaiWs || connection.openaiWs.readyState !== WebSocket.OPEN) {
+    console.error("[WS] OpenAI connection not ready");
+    return;
+  }
+
+  if (!connection.isSTTSessionActive) {
+    console.warn("[WS] Received STT audio chunk but session is not active");
+    return;
+  }
+
+  if (!message.audio) {
+    console.warn("[WS] STT audio chunk message missing audio data");
+    return;
+  }
+
+  try {
+    // Forward audio to OpenAI for transcription
+    connection.openaiWs.send(
+      JSON.stringify({
+        type: "input_audio_buffer.append",
+        audio: message.audio,
+      })
+    );
+
+    // Increment chunk counter
+    connection.sttChunkCounter++;
+
+    // Commit every 6 chunks (~1 second of audio at 4096 samples/chunk @ 24kHz)
+    // This gives Whisper enough context to transcribe effectively
+    if (connection.sttChunkCounter >= 6) {
+      console.log("[WS] Committing STT audio buffer after", connection.sttChunkCounter, "chunks");
+      connection.openaiWs.send(
+        JSON.stringify({
+          type: "input_audio_buffer.commit",
+        })
+      );
+      connection.sttChunkCounter = 0; // Reset counter
+    }
+  } catch (error: any) {
+    console.error("[WS] Error handling STT audio chunk:", error);
+  }
+}
+
+/**
+ * Handle ending STT session
+ */
+async function handleEndSTTSession(connection: ClientConnection) {
+  if (!connection.openaiWs || connection.openaiWs.readyState !== WebSocket.OPEN) {
+    console.warn("[WS] OpenAI connection not ready");
+    return;
+  }
+
+  try {
+    console.log("[WS] Ending STT session");
+
+    // Commit any remaining audio in buffer
+    if (connection.sttChunkCounter > 0) {
+      console.log("[WS] Committing remaining", connection.sttChunkCounter, "chunks");
+      connection.openaiWs.send(
+        JSON.stringify({
+          type: "input_audio_buffer.commit",
+        })
+      );
+    }
+
+    // Give a moment for final transcription to arrive
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Send final transcript to client
+    if (connection.sttTranscript) {
+      connection.clientWs.send(
+        JSON.stringify({
+          type: "stt_transcript_delta",
+          text: connection.sttTranscript,
+          is_final: true,
+        })
+      );
+    }
+
+    // Reset STT state
+    connection.isSTTSessionActive = false;
+    connection.sttTranscript = "";
+    connection.sttChunkCounter = 0;
+
+    // Switch back to text mode
+    const sessionUpdate = {
+      type: "session.update",
+      session: {
+        modalities: ["text"],
+        input_audio_transcription: null, // Disable transcription
+        turn_detection: null,
+      },
+    };
+
+    connection.openaiWs.send(JSON.stringify(sessionUpdate));
+
+    // Send confirmation to client
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "stt_session_ended",
+      })
+    );
+
+    console.log("[WS] STT session ended");
+  } catch (error: any) {
+    console.error("[WS] Error ending STT session:", error);
+  }
+}
+

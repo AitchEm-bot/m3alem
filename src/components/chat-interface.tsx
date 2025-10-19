@@ -83,7 +83,7 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
     transcript,
     toggleRecording,
     clearTranscript,
-  } = useSTT()
+  } = useSTT(wsClient)
 
   // Initialize voice call hook
   const {

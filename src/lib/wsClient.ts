@@ -21,7 +21,12 @@ export type WSMessageType =
   | "voice_call_started"
   | "voice_call_ended"
   | "conversation_created"
-  | "commit_audio";
+  | "commit_audio"
+  | "start_stt_session"
+  | "stt_audio_chunk"
+  | "end_stt_session"
+  | "stt_transcript_delta"
+  | "stt_session_started";
 
 export interface WSMessage {
   type: WSMessageType;

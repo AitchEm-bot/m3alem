@@ -47,7 +47,11 @@ export type WSMessageType =
   | "audio_chunk"
   | "audio_response"
   | "audio_transcript"
-  | "commit_audio";
+  | "commit_audio"
+  | "start_stt_session"
+  | "stt_audio_chunk"
+  | "end_stt_session"
+  | "stt_transcript_delta";
 
 export interface IngestResult {
   success: boolean;
