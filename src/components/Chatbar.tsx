@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, ChangeEvent, KeyboardEvent } from "react";
+import { useState, useRef, useEffect, ChangeEvent, KeyboardEvent } from "react";
 import { Mic, MicOff, Image as ImageIcon, Send, X, Phone, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,8 @@ interface ChatbarProps {
   onMicClick?: () => void; // NEW: Handle mic button for STT
   onCallToggle?: (isActive: boolean) => void; // NEW: Handle call button for voice call
   onManualCommit?: () => void; // NEW: Manual audio commit for VAD-disabled mode
+  transcript?: string; // NEW: Transcript to populate in input box
+  onClearTranscript?: () => void; // NEW: Clear transcript after it's been added
   isVoiceActive?: boolean;
   isRecording?: boolean; // NEW: STT recording state
   isCallActive?: boolean; // NEW: Voice call state
@@ -31,6 +33,8 @@ export function Chatbar({
   onMicClick,
   onCallToggle,
   onManualCommit,
+  transcript,
+  onClearTranscript,
   isVoiceActive = false,
   isRecording = false,
   isCallActive = false,
@@ -41,6 +45,16 @@ export function Chatbar({
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-populate transcript when it's received
+  useEffect(() => {
+    if (transcript) {
+      console.log("[Chatbar] Received transcript:", transcript);
+      // Replace the message with the transcript (don't append)
+      // The transcript already accumulates in useSTT
+      setMessage(transcript);
+    }
+  }, [transcript]);
 
   const handleSend = () => {
     if (message.trim() || imageFile) {
@@ -55,6 +69,11 @@ export function Chatbar({
         // Send text-only message
         onSendMessage(message.trim());
         setMessage("");
+      }
+
+      // Clear the transcript after sending
+      if (onClearTranscript) {
+        onClearTranscript();
       }
     }
   };

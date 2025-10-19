@@ -133,12 +133,9 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
 
   const handleMicClick = () => {
     if (isRecording) {
-      // Stop recording and send transcript as message
+      // Stop recording - transcript will be populated in input box
+      // User will manually send it
       toggleRecording()
-      if (transcript) {
-        sendMessage(transcript)
-        clearTranscript()
-      }
     } else {
       // Start recording
       toggleRecording()
@@ -283,6 +280,8 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
                 onMicClick={handleMicClick}
                 onCallToggle={handleCallToggle}
                 onManualCommit={handleManualCommit}
+                transcript={transcript}
+                onClearTranscript={clearTranscript}
                 isRecording={isRecording}
                 isCallActive={isCallActive}
                 isLoading={isLoading}

@@ -84,6 +84,68 @@ class OpenAIService {
   }
 
   /**
+   * Transcribe audio using Whisper API
+   * @param audioBase64 - Base64 encoded audio (WebM format)
+   * @returns Transcribed text
+   */
+  async transcribeAudio(audioBase64: string): Promise<string> {
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+
+    let tempFilePath: string | null = null;
+
+    try {
+      // Convert base64 to buffer
+      const audioBuffer = Buffer.from(audioBase64, 'base64');
+
+      // Create temporary file
+      const tempDir = os.tmpdir();
+      tempFilePath = path.join(tempDir, `audio-${Date.now()}-${Math.random().toString(36).substring(7)}.webm`);
+
+      // Write buffer to temp file
+      fs.writeFileSync(tempFilePath, audioBuffer);
+
+      // Log file size and first few bytes to debug format issues
+      const stats = fs.statSync(tempFilePath);
+      const firstBytes = audioBuffer.slice(0, 20);
+      console.log('[OpenAI] Temp file created:', {
+        path: tempFilePath,
+        size: stats.size,
+        firstBytes: firstBytes.toString('hex').substring(0, 40),
+      });
+
+      // Create a read stream for the file
+      const fileStream = fs.createReadStream(tempFilePath);
+
+      // Send to OpenAI Whisper API
+      const response = await this.client.audio.transcriptions.create({
+        file: fileStream as any,
+        model: 'whisper-1',
+        language: 'en',
+      });
+
+      // Clean up temp file
+      fs.unlinkSync(tempFilePath);
+      tempFilePath = null;
+
+      return response.text || '';
+    } catch (error) {
+      // Clean up temp file if it exists
+      if (tempFilePath && fs.existsSync(tempFilePath)) {
+        try {
+          fs.unlinkSync(tempFilePath);
+        } catch (cleanupError) {
+          console.error('[OpenAI] Failed to cleanup temp file:', cleanupError);
+        }
+      }
+
+      console.error('[OpenAI] Transcription error:', error);
+      throw new Error('Failed to transcribe audio');
+    }
+  }
+
+  /**
    * Get client instance for direct access
    */
   getClient(): OpenAI {
