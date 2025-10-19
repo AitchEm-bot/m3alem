@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { RAGSource } from "@/lib/wsClient";
 
 export interface Conversation {
   id: string;
@@ -15,9 +16,10 @@ export interface Message {
   conversation_id: string;
   role: "user" | "assistant";
   content: string;
-  sources?: any[];
+  sources?: RAGSource[];
   image_data?: string;
   image_filename?: string;
+  is_spoken?: boolean;
   created_at: Date;
 }
 
@@ -47,7 +49,7 @@ export function useConversations() {
       const data = await response.json();
 
       // Convert date strings to Date objects
-      const conversationsWithDates = data.conversations.map((conv: any) => ({
+      const conversationsWithDates = data.conversations.map((conv: Conversation & { created_at: string; updated_at: string }) => ({
         ...conv,
         created_at: new Date(conv.created_at),
         updated_at: new Date(conv.updated_at),
@@ -55,9 +57,9 @@ export function useConversations() {
 
       setConversations(conversationsWithDates);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       console.error("[useConversations] Error fetching conversations:", err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : "Failed to fetch conversations");
     } finally {
       setLoading(false);
     }
@@ -81,12 +83,12 @@ export function useConversations() {
         ...data,
         created_at: new Date(data.created_at),
         updated_at: new Date(data.updated_at),
-        messages: data.messages.map((msg: any) => ({
+        messages: data.messages.map((msg: Message & { created_at: string }) => ({
           ...msg,
           created_at: new Date(msg.created_at),
         })),
       };
-    } catch (err: any) {
+    } catch (err) {
       console.error("[useConversations] Error fetching conversation:", err);
       return null;
     }
@@ -119,7 +121,7 @@ export function useConversations() {
       setConversations((prev) => [newConversation, ...prev]);
 
       return newConversation;
-    } catch (err: any) {
+    } catch (err) {
       console.error("[useConversations] Error creating conversation:", err);
       return null;
     }
@@ -156,7 +158,7 @@ export function useConversations() {
       );
 
       return true;
-    } catch (err: any) {
+    } catch (err) {
       console.error("[useConversations] Error updating conversation:", err);
       return false;
     }
@@ -179,7 +181,7 @@ export function useConversations() {
       setConversations((prev) => prev.filter((conv) => conv.id !== id));
 
       return true;
-    } catch (err: any) {
+    } catch (err) {
       console.error("[useConversations] Error deleting conversation:", err);
       return false;
     }

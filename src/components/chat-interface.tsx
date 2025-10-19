@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Navigation } from "@/components/navigation"
 import { FloatingSphere } from "@/components/floating-sphere"
@@ -109,7 +109,7 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
   useEffect(() => {
     if (!wsClient) return;
 
-    const audioHandler = (message: any) => {
+    const audioHandler = (message: import("@/lib/wsClient").WSMessage) => {
       if (message.audio) {
         console.log("[ChatInterface] Received audio response, chunk length:", message.audio.length);
         handleAudioResponse(message.audio);
@@ -230,7 +230,7 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
                       </h3>
                       <p className="text-muted-foreground">
                         Your AI tutor is ready to help you learn. Ask any
-                        question and I'll provide detailed explanations with
+                        question and I&apos;ll provide detailed explanations with
                         references to your textbooks.
                       </p>
                     </div>

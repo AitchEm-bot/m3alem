@@ -16,8 +16,38 @@ const app = express();
 const port = process.env.PORT || 3001;
 
 // Middleware
+// Allow multiple origins for development and production (Vercel preview + production URLs)
+const allowedOrigins = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(origin => origin.trim())
+  : ["*"];
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "*",
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, Postman, curl)
+    if (!origin) return callback(null, true);
+
+    // Allow all origins in development
+    if (allowedOrigins.includes("*")) {
+      return callback(null, true);
+    }
+
+    // Check if origin is allowed
+    if (allowedOrigins.some(allowed => {
+      // Exact match
+      if (allowed === origin) return true;
+      // Wildcard subdomain match (e.g., *.vercel.app)
+      if (allowed.startsWith('*.')) {
+        const domain = allowed.slice(2);
+        return origin.endsWith(domain);
+      }
+      return false;
+    })) {
+      return callback(null, true);
+    }
+
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
 }));
 // Increase payload limit for audio transcription (default is 100kb, we need more for audio files)
 app.use(express.json({ limit: '50mb' }));

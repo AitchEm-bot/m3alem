@@ -137,7 +137,7 @@ export function ChatMessage({ message, className }: ChatMessageProps) {
                   <h3 className="text-lg font-semibold text-teal mt-2 mb-1" {...props} />
                 ),
                 // Style code blocks
-                code: ({ node, inline, className, children, ...props }: any) => {
+                code: ({ inline, className, children, ...props }: React.HTMLProps<HTMLElement> & { inline?: boolean }) => {
                   if (inline) {
                     return (
                       <code

@@ -32,7 +32,7 @@ export interface WSMessage {
   type: WSMessageType;
   session_id?: string;
   text?: string;
-  data?: any;
+  data?: Record<string, unknown>;
   use_rag?: boolean;
   sources?: RAGSource[];
   error?: string;
