@@ -81,6 +81,7 @@ router.get("/:id", async (req: Request, res: Response) => {
       sources: row.sources,
       image_data: row.image_data,
       image_filename: row.image_filename,
+      is_spoken: row.is_spoken || false,
       created_at: new Date(row.created_at),
     }));
 

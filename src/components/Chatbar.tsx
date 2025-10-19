@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, ChangeEvent, KeyboardEvent } from "react";
-import { Mic, MicOff, Image as ImageIcon, Send, X } from "lucide-react";
+import { Mic, MicOff, Image as ImageIcon, Send, X, Phone, PhoneOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,12 @@ interface ChatbarProps {
   onSendMessage: (message: string) => void;
   onVoiceToggle: (isActive: boolean) => void;
   onImageUpload: (file: File, caption?: string) => void;
+  onMicClick?: () => void; // NEW: Handle mic button for STT
+  onCallToggle?: (isActive: boolean) => void; // NEW: Handle call button for voice call
+  onManualCommit?: () => void; // NEW: Manual audio commit for VAD-disabled mode
   isVoiceActive?: boolean;
+  isRecording?: boolean; // NEW: STT recording state
+  isCallActive?: boolean; // NEW: Voice call state
   isLoading?: boolean;
   className?: string;
 }
@@ -23,7 +28,12 @@ export function Chatbar({
   onSendMessage,
   onVoiceToggle,
   onImageUpload,
+  onMicClick,
+  onCallToggle,
+  onManualCommit,
   isVoiceActive = false,
+  isRecording = false,
+  isCallActive = false,
   isLoading = false,
   className,
 }: ChatbarProps) {
@@ -105,24 +115,64 @@ export function Chatbar({
 
       {/* Input Area */}
       <div className="flex items-end space-x-2">
-        {/* Voice Toggle Button */}
-        <Button
-          variant={isVoiceActive ? "default" : "outline"}
-          size="icon"
-          onClick={() => onVoiceToggle(!isVoiceActive)}
-          className={cn(
-            "flex-shrink-0",
-            isVoiceActive && "bg-teal hover:bg-teal/90"
-          )}
-          disabled={isLoading}
-          aria-label={isVoiceActive ? "Stop voice mode" : "Start voice mode"}
-        >
-          {isVoiceActive ? (
-            <MicOff className="h-5 w-5" />
-          ) : (
-            <Mic className="h-5 w-5" />
-          )}
-        </Button>
+        {/* STT Mic Button - Records and transcribes to text */}
+        {onMicClick && (
+          <Button
+            variant={isRecording ? "default" : "outline"}
+            size="icon"
+            onClick={onMicClick}
+            className={cn(
+              "flex-shrink-0",
+              isRecording && "bg-red-500 hover:bg-red-600 animate-pulse"
+            )}
+            disabled={isLoading || isCallActive}
+            aria-label={isRecording ? "Stop recording" : "Record voice"}
+            title="Record voice to text"
+          >
+            {isRecording ? (
+              <MicOff className="h-5 w-5" />
+            ) : (
+              <Mic className="h-5 w-5" />
+            )}
+          </Button>
+        )}
+
+        {/* Voice Call Button - Start/End full voice conversation */}
+        {onCallToggle && (
+          <Button
+            variant={isCallActive ? "default" : "outline"}
+            size="icon"
+            onClick={() => onCallToggle(!isCallActive)}
+            className={cn(
+              "flex-shrink-0",
+              isCallActive && "bg-teal hover:bg-teal/90"
+            )}
+            disabled={isLoading || isRecording}
+            aria-label={isCallActive ? "End voice call" : "Start voice call"}
+            title="Start voice call with M3alem"
+          >
+            {isCallActive ? (
+              <PhoneOff className="h-5 w-5" />
+            ) : (
+              <Phone className="h-5 w-5" />
+            )}
+          </Button>
+        )}
+
+        {/* Manual Commit Button - Only show during voice call (VAD disabled mode) */}
+        {isCallActive && onManualCommit && (
+          <Button
+            variant="default"
+            size="icon"
+            onClick={onManualCommit}
+            className="flex-shrink-0 bg-primary hover:bg-primary/90"
+            disabled={isLoading}
+            aria-label="Send voice message"
+            title="Click when done speaking (VAD is disabled)"
+          >
+            <Send className="h-5 w-5" />
+          </Button>
+        )}
 
         {/* Image Upload Button */}
         <Button
@@ -130,7 +180,7 @@ export function Chatbar({
           size="icon"
           onClick={() => fileInputRef.current?.click()}
           className="flex-shrink-0"
-          disabled={isLoading}
+          disabled={isLoading || isCallActive}
           aria-label="Upload image"
         >
           <ImageIcon className="h-5 w-5" />
@@ -148,15 +198,15 @@ export function Chatbar({
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyPress={handleKeyPress}
-          placeholder="Ask M3alem anything..."
+          placeholder={isCallActive ? "Voice call active..." : "Ask M3alem anything..."}
           className="flex-1"
-          disabled={isLoading || isVoiceActive}
+          disabled={isLoading || isVoiceActive || isCallActive}
         />
 
         {/* Send Button */}
         <Button
           onClick={handleSend}
-          disabled={(!message.trim() && !imageFile) || isLoading}
+          disabled={(!message.trim() && !imageFile) || isLoading || isCallActive}
           className="flex-shrink-0 bg-teal hover:bg-teal/90"
           size="icon"
           aria-label="Send message"

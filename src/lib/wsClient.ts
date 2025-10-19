@@ -11,7 +11,17 @@ export type WSMessageType =
   | "partial_response"
   | "final_response"
   | "rag_sources"
-  | "error";
+  | "error"
+  | "start_voice_call"
+  | "end_voice_call"
+  | "audio_chunk"
+  | "audio_response"
+  | "audio_transcript"
+  | "user_audio_transcript"
+  | "voice_call_started"
+  | "voice_call_ended"
+  | "conversation_created"
+  | "commit_audio";
 
 export interface WSMessage {
   type: WSMessageType;
@@ -21,6 +31,11 @@ export interface WSMessage {
   use_rag?: boolean;
   sources?: RAGSource[];
   error?: string;
+  audio?: string; // base64 encoded audio data
+  is_spoken?: boolean; // flag to mark spoken messages
+  is_partial?: boolean; // flag to indicate if transcript is partial/streaming
+  is_placeholder?: boolean; // flag to indicate placeholder message
+  is_final?: boolean; // flag to indicate final version of message
 }
 
 export interface RAGSource {
@@ -174,7 +189,12 @@ export class WebSocketClient {
    */
   disconnect(): void {
     if (this.ws) {
-      this.ws.close();
+      // Only close if the connection is open or connecting
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close();
+      } else {
+        console.warn('[WS] WebSocket is not open, cannot close. ReadyState:', this.ws.readyState);
+      }
       this.ws = null;
     }
   }

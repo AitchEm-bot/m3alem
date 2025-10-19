@@ -97,7 +97,8 @@ export function ChatMessage({ message, className }: ChatMessageProps) {
               "text-sm leading-relaxed break-words rounded-2xl px-4 py-3",
               isUser
                 ? "bg-primary text-primary-foreground"
-                : "bg-muted"
+                : "bg-muted",
+              message.isSpoken && "italic opacity-90"
             )}
           >
             {/* Display image if present */}

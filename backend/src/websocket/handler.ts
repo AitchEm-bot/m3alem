@@ -16,6 +16,11 @@ interface ClientConnection {
   currentSources: RAGQueryResult[];
   accumulatedText: string;
   isFirstMessage: boolean;
+  isVoiceCallActive: boolean; // Track if voice call is active
+  accumulatedTranscript: string; // Accumulate user speech transcript during call
+  hasAudioInBuffer: boolean; // Track if there's audio in the buffer
+  isResponseInProgress: boolean; // Track if OpenAI is currently generating a response
+  pendingBufferCommit: boolean; // Track if we need to commit buffer after current response finishes
 }
 
 export function handleWebSocketConnection(ws: WebSocket, req: any) {
@@ -29,6 +34,11 @@ export function handleWebSocketConnection(ws: WebSocket, req: any) {
     currentSources: [],
     accumulatedText: "",
     isFirstMessage: true,
+    isVoiceCallActive: false,
+    accumulatedTranscript: "",
+    hasAudioInBuffer: false,
+    isResponseInProgress: false,
+    pendingBufferCommit: false,
   };
 
   // Initialize OpenAI Realtime API connection
@@ -67,6 +77,26 @@ export function handleWebSocketConnection(ws: WebSocket, req: any) {
           await handleImageUpload(connection, message);
           break;
 
+        case "start_voice_call":
+          console.log("[WS] Starting voice call");
+          await handleStartVoiceCall(connection);
+          break;
+
+        case "end_voice_call":
+          console.log("[WS] Ending voice call");
+          await handleEndVoiceCall(connection);
+          break;
+
+        case "audio_chunk":
+          console.log("[WS] Audio chunk received");
+          await handleAudioChunk(connection, message);
+          break;
+
+        case "commit_audio":
+          console.log("[WS] Manual audio commit requested");
+          await handleManualCommit(connection);
+          break;
+
         default:
           console.log(`[WS] Unknown message type: ${message.type}`);
       }
@@ -101,6 +131,13 @@ async function loadConversationHistory(connection: ClientConnection) {
     return;
   }
 
+  // TODO: Conversation history loading temporarily disabled while testing voice call
+  // The Realtime API has specific requirements for loading conversation history
+  // that need to be investigated further
+  console.log(`[WS] Conversation history loading disabled (conversation: ${connection.conversationId})`);
+  return;
+
+  /* DISABLED CODE
   try {
     console.log(`[WS] Loading conversation history for ${connection.conversationId}`);
 
@@ -124,42 +161,26 @@ async function loadConversationHistory(connection: ClientConnection) {
 
     console.log(`[WS] Found ${messages.length} previous messages`);
 
-    // Send each message to OpenAI to rebuild context
-    // User messages use 'input_text', assistant messages need different structure
-    for (const msg of messages) {
-      let conversationItem;
+    // Only send USER messages to OpenAI to rebuild context
+    // The Realtime API doesn't support manually creating assistant messages via conversation.item.create
+    // Assistant responses are only created by the model itself
+    const userMessages = messages.filter(msg => msg.role === "user");
+    console.log(`[WS] Sending ${userMessages.length} user messages to rebuild context`);
 
-      if (msg.role === "user") {
-        // User messages use input_text
-        conversationItem = {
-          type: "conversation.item.create",
-          item: {
-            type: "message",
-            role: "user",
-            content: [
-              {
-                type: "input_text",
-                text: msg.content,
-              },
-            ],
-          },
-        };
-      } else {
-        // Assistant messages use text content
-        conversationItem = {
-          type: "conversation.item.create",
-          item: {
-            type: "message",
-            role: "assistant",
-            content: [
-              {
-                type: "text",
-                text: msg.content,
-              },
-            ],
-          },
-        };
-      }
+    for (const msg of userMessages) {
+      const conversationItem = {
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: msg.content,
+            },
+          ],
+        },
+      };
 
       if (connection.openaiWs.readyState === WebSocket.OPEN) {
         connection.openaiWs.send(JSON.stringify(conversationItem));
@@ -170,6 +191,7 @@ async function loadConversationHistory(connection: ClientConnection) {
   } catch (error) {
     console.error("[WS] Failed to load conversation history:", error);
   }
+  */
 }
 
 /**
@@ -218,6 +240,13 @@ function initializeOpenAIConnection(connection: ClientConnection) {
 - Using context from textbooks when provided
 - Citing sources (page numbers) when referencing material
 
+LANGUAGE HANDLING:
+- Automatically detect and respond in the user's spoken language (English, Arabic, or any other language)
+- You can freely switch languages mid-sentence or mix languages if it helps explain concepts better
+- Use code-switching naturally (e.g., "The مفهوم of derivatives في calculus is...")
+- If a term is clearer in one language, use it even if the conversation is in another language
+- Prioritize clarity over language consistency - use whatever language best explains the concept
+
 IMPORTANT - Math Formatting:
 - For inline math expressions, use single dollar signs: $E=mc^2$
 - For block equations, use double dollar signs on separate lines:
@@ -240,12 +269,13 @@ Keep responses clear, educational, and engaging.`,
 
     connection.openaiWs!.send(JSON.stringify(sessionUpdate));
 
-    // Load conversation history if returning to existing conversation
-    if (connection.conversationId) {
-      loadConversationHistory(connection).catch((error) => {
-        console.error("[WS] Failed to load conversation history:", error);
-      });
-    }
+    // Conversation history loading disabled while testing voice call
+    // TODO: Re-enable once proper format is determined for Realtime API
+    // if (connection.conversationId) {
+    //   loadConversationHistory(connection).catch((error) => {
+    //     console.error("[WS] Failed to load conversation history:", error);
+    //   });
+    // }
   });
 
   connection.openaiWs.on("message", async (data: Buffer) => {
@@ -286,7 +316,189 @@ async function handleOpenAIEvent(connection: ClientConnection, event: any) {
       break;
 
     case "response.audio_transcript.delta":
-      // Text transcription of audio (we're not using audio mode)
+      // Accumulate transcript during voice call
+      if (connection.isVoiceCallActive && event.delta) {
+        connection.accumulatedTranscript += event.delta;
+
+        // Send transcript delta to client for display (partial)
+        connection.clientWs.send(
+          JSON.stringify({
+            type: "audio_transcript",
+            text: event.delta,
+            is_spoken: true,
+            is_partial: true,  // Mark as partial so frontend accumulates
+          })
+        );
+      }
+      break;
+
+    case "response.audio_transcript.done":
+      // Complete transcript received
+      if (connection.isVoiceCallActive && event.transcript) {
+        console.log("[WS] Audio transcript complete:", event.transcript);
+
+        // Save assistant's voice message to database
+        if (connection.conversationId) {
+          try {
+            await supabaseService.getClient()
+              .from("messages")
+              .insert({
+                conversation_id: connection.conversationId,
+                role: "assistant",
+                content: event.transcript,
+                is_spoken: true,
+              });
+            console.log("[WS] Assistant voice message saved to database");
+          } catch (error) {
+            console.error("[WS] Failed to save assistant voice message:", error);
+          }
+        }
+
+        // Send final complete transcript
+        connection.clientWs.send(
+          JSON.stringify({
+            type: "audio_transcript",
+            text: event.transcript,
+            is_spoken: true,
+            is_partial: false,  // Mark as complete
+          })
+        );
+      }
+      break;
+
+    case "response.audio.delta":
+      // Forward audio chunk directly to client - let OpenAI handle streaming
+      if (connection.isVoiceCallActive && event.delta) {
+        console.log(`[WS] Forwarding audio delta to client, size: ${event.delta.length}`);
+        connection.clientWs.send(
+          JSON.stringify({
+            type: "audio_response",
+            audio: event.delta,
+          })
+        );
+      }
+      break;
+
+    case "response.audio.done":
+      // Audio response completed
+      if (connection.isVoiceCallActive) {
+        console.log("[WS] Audio response completed");
+      }
+      break;
+
+    case "input_audio_buffer.speech_stopped":
+      // User stopped speaking - VAD detected silence
+      console.log("[WS] User stopped speaking");
+      if (connection.isVoiceCallActive && connection.openaiWs && connection.hasAudioInBuffer) {
+        if (connection.isResponseInProgress) {
+          console.log("[WS] Response already in progress, marking buffer for commit after current response");
+          connection.pendingBufferCommit = true;
+        } else {
+          console.log("[WS] Committing audio buffer and creating response");
+
+          // DON'T send placeholder - just commit and wait for transcript
+          // The transcript will arrive via conversation.item.input_audio_transcription.completed
+
+          // Commit the audio buffer to trigger response generation
+          connection.openaiWs.send(JSON.stringify({
+            type: "input_audio_buffer.commit"
+          }));
+
+          // Create a response with audio modality
+          connection.openaiWs.send(JSON.stringify({
+            type: "response.create",
+            response: {
+              modalities: ["audio", "text"],
+              instructions: "Respond to the user's question as M3alem, the educational tutor.",
+            }
+          }));
+
+          connection.hasAudioInBuffer = false; // Reset flag
+          connection.isResponseInProgress = true; // Mark response as in progress
+        }
+      } else if (!connection.hasAudioInBuffer) {
+        console.log("[WS] No audio in buffer, skipping commit");
+      }
+      break;
+
+    case "input_audio_buffer.committed":
+      console.log("[WS] Audio buffer committed successfully");
+      connection.hasAudioInBuffer = false;
+      break;
+
+    case "input_audio_buffer.cleared":
+      console.log("[WS] Audio buffer cleared");
+      connection.hasAudioInBuffer = false;
+      break;
+
+    case "conversation.item.input_audio_transcription.completed":
+      // User's audio has been transcribed
+      if (connection.isVoiceCallActive && event.transcript) {
+        console.log("[WS] User audio transcribed:", event.transcript);
+
+        // Create conversation if this is the first message
+        if (!connection.conversationId && connection.isFirstMessage) {
+          try {
+            const title = event.transcript.length > 50
+              ? event.transcript.substring(0, 50) + "..."
+              : event.transcript;
+
+            const { data, error } = await supabaseService.getClient()
+              .from("conversations")
+              .insert({ title })
+              .select()
+              .single();
+
+            if (error) {
+              throw new Error(error.message);
+            }
+
+            connection.conversationId = data.id;
+            console.log(`[WS] Created new conversation: ${connection.conversationId}`);
+
+            connection.clientWs.send(
+              JSON.stringify({
+                type: "conversation_created",
+                data: { conversation_id: connection.conversationId },
+              })
+            );
+          } catch (error) {
+            console.error("[WS] Error creating conversation:", error);
+          }
+        }
+
+        connection.isFirstMessage = false;
+
+        // Save user voice message to database
+        if (connection.conversationId) {
+          try {
+            await supabaseService.getClient()
+              .from("messages")
+              .insert({
+                conversation_id: connection.conversationId,
+                role: "user",
+                content: event.transcript,
+                is_spoken: true,
+              });
+
+            console.log(`[WS] Saved user voice message to conversation ${connection.conversationId}`);
+          } catch (error) {
+            console.error("[WS] Error saving user voice message:", error);
+          }
+        }
+
+        // Accumulate user transcript for session tracking
+        connection.accumulatedTranscript += event.transcript + " ";
+
+        // Send transcript to client as new user message
+        connection.clientWs.send(
+          JSON.stringify({
+            type: "user_audio_transcript",
+            text: event.transcript,
+            is_spoken: true,
+          })
+        );
+      }
       break;
 
     case "response.text.delta":
@@ -341,6 +553,7 @@ async function handleOpenAIEvent(connection: ClientConnection, event: any) {
               role: "assistant",
               content: connection.accumulatedText,
               sources: connection.currentSources.length > 0 ? connection.currentSources : null,
+              is_spoken: connection.isVoiceCallActive, // Mark as spoken if from voice call
             });
 
           // Update conversation's updated_at timestamp
@@ -349,7 +562,7 @@ async function handleOpenAIEvent(connection: ClientConnection, event: any) {
             .update({ updated_at: new Date().toISOString() })
             .eq("id", connection.conversationId);
 
-          console.log(`[WS] Saved assistant message to conversation ${connection.conversationId}`);
+          console.log(`[WS] Saved assistant ${connection.isVoiceCallActive ? 'voice' : 'text'} message to conversation ${connection.conversationId}`);
         } catch (error) {
           console.error("[WS] Error saving assistant message:", error);
         }
@@ -358,6 +571,30 @@ async function handleOpenAIEvent(connection: ClientConnection, event: any) {
       // Reset for next response
       connection.accumulatedText = "";
       connection.currentSources = [];
+      connection.isResponseInProgress = false; // Mark response as complete
+
+      // If there's a pending buffer commit, process it now
+      if (connection.pendingBufferCommit && connection.isVoiceCallActive && connection.openaiWs) {
+        console.log("[WS] Processing pending buffer commit");
+        connection.pendingBufferCommit = false;
+
+        // Commit the audio buffer
+        connection.openaiWs.send(JSON.stringify({
+          type: "input_audio_buffer.commit"
+        }));
+
+        // Create a new response
+        connection.openaiWs.send(JSON.stringify({
+          type: "response.create",
+          response: {
+            modalities: ["audio", "text"],
+            instructions: "Respond to the user's question as M3alem, the educational tutor.",
+          }
+        }));
+
+        connection.hasAudioInBuffer = false;
+        connection.isResponseInProgress = true;
+      }
       break;
 
     case "response.content_part.done":
@@ -377,9 +614,27 @@ async function handleOpenAIEvent(connection: ClientConnection, event: any) {
       );
       break;
 
+    case "input_audio_buffer.speech_started":
+      console.log("[WS] User started speaking");
+      connection.hasAudioInBuffer = true; // Mark that we have audio in buffer
+      break;
+
     case "rate_limits.updated":
       // Rate limit info - log but don't forward to client
       console.log("[WS] Rate limits updated");
+      break;
+
+    case "response.output_item.added":
+      console.log("[WS] Response output item added");
+      break;
+
+    case "response.output_item.done":
+      console.log("[WS] Response output item done");
+      break;
+
+    case "response.created":
+      console.log("[WS] Response created");
+      connection.isResponseInProgress = true;
       break;
 
     default:
@@ -662,5 +917,231 @@ async function handleImageUpload(connection: ClientConnection, message: WSMessag
         error: "Failed to process image",
       })
     );
+  }
+}
+
+/**
+ * Handle start voice call request
+ * Switches OpenAI session to audio mode
+ */
+async function handleStartVoiceCall(connection: ClientConnection) {
+  if (!connection.openaiWs || connection.openaiWs.readyState !== WebSocket.OPEN) {
+    console.error("[WS] OpenAI connection not ready");
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "error",
+        error: "AI service not connected",
+      })
+    );
+    return;
+  }
+
+  try {
+    console.log("[WS] Switching to voice call mode");
+    connection.isVoiceCallActive = true;
+    connection.accumulatedTranscript = "";
+    connection.hasAudioInBuffer = false;
+    connection.isResponseInProgress = false;
+    connection.pendingBufferCommit = false;
+
+    // Update session to enable audio modalities
+    // Using correct format for OpenAI Realtime API
+    const sessionUpdate = {
+      type: "session.update",
+      session: {
+        model: "gpt-realtime-mini",
+        modalities: ["text", "audio"],  // Enable both text and audio
+        voice: "alloy",
+        input_audio_format: "pcm16",
+        output_audio_format: "pcm16",
+        input_audio_transcription: {
+          model: "whisper-1",  // Enable transcription of user audio
+        },
+        turn_detection: null,  // DISABLED - Manual mode for testing in noisy environment
+        // turn_detection: {
+        //   type: "server_vad",  // Server-side voice activity detection
+        //   threshold: 0.7,  // Higher threshold = less sensitive to noise (0.5 -> 0.7)
+        //   prefix_padding_ms: 300,
+        //   silence_duration_ms: 1000,  // Longer silence required = fewer false triggers (500ms -> 1000ms)
+        // },
+        instructions: `You are M3alem, an AI educational tutor helping students learn. Provide clear, concise explanations.
+
+LANGUAGE HANDLING:
+- Automatically detect and respond in the user's spoken language (English, Arabic, or any other language)
+- You can freely switch languages mid-sentence or mix languages if it helps explain concepts better
+- Use code-switching naturally (e.g., "The مفهوم of derivatives في calculus is...")
+- If a term is clearer in one language, use it even if the conversation is in another language
+- Prioritize clarity over language consistency - use whatever language best explains the concept`,
+        temperature: 0.8,
+        max_response_output_tokens: 4096,
+      },
+    };
+
+    connection.openaiWs.send(JSON.stringify(sessionUpdate));
+
+    // Notify client that voice call started
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "voice_call_started",
+      })
+    );
+
+    console.log("[WS] Voice call mode activated");
+  } catch (error: any) {
+    console.error("[WS] Error starting voice call:", error);
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "error",
+        error: "Failed to start voice call",
+      })
+    );
+  }
+}
+
+/**
+ * Handle end voice call request
+ * Switches OpenAI session back to text-only mode
+ */
+async function handleEndVoiceCall(connection: ClientConnection) {
+  if (!connection.openaiWs || connection.openaiWs.readyState !== WebSocket.OPEN) {
+    console.error("[WS] OpenAI connection not ready");
+    return;
+  }
+
+  try {
+    console.log("[WS] Ending voice call mode");
+
+    // Update session back to text-only mode
+    const sessionUpdate = {
+      type: "session.update",
+      session: {
+        model: "gpt-realtime-mini",
+        modalities: ["text"], // Text only
+        voice: "alloy",
+        input_audio_format: "pcm16",
+        output_audio_format: "pcm16",
+        input_audio_transcription: null, // Disable transcription
+        turn_detection: null, // Disable turn detection for text mode
+        temperature: 0.8,
+        max_response_output_tokens: 4096,
+      },
+    };
+
+    connection.openaiWs.send(JSON.stringify(sessionUpdate));
+
+    // Messages are now saved individually as they arrive, so no need to save accumulated transcript
+    // Just reset the state
+    connection.isVoiceCallActive = false;
+    connection.accumulatedTranscript = "";
+    connection.hasAudioInBuffer = false;
+    connection.isResponseInProgress = false;
+    connection.pendingBufferCommit = false;
+
+    // Notify client that voice call ended
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "voice_call_ended",
+      })
+    );
+
+    console.log("[WS] Voice call mode deactivated");
+  } catch (error: any) {
+    console.error("[WS] Error ending voice call:", error);
+    connection.clientWs.send(
+      JSON.stringify({
+        type: "error",
+        error: "Failed to end voice call",
+      })
+    );
+  }
+}
+
+/**
+ * Handle audio chunk from client during voice call
+ * Forwards audio data to OpenAI Realtime API
+ */
+async function handleAudioChunk(connection: ClientConnection, message: WSMessage) {
+  if (!connection.openaiWs || connection.openaiWs.readyState !== WebSocket.OPEN) {
+    console.error("[WS] OpenAI connection not ready");
+    return;
+  }
+
+  if (!connection.isVoiceCallActive) {
+    console.warn("[WS] Received audio chunk but voice call is not active");
+    return;
+  }
+
+  try {
+    const audioData = message.audio; // Base64 encoded PCM16 audio
+
+    if (!audioData) {
+      console.warn("[WS] Audio chunk missing audio data");
+      return;
+    }
+
+    // Mark that we have audio in buffer
+    connection.hasAudioInBuffer = true;
+
+    // Forward audio to OpenAI
+    const audioAppend = {
+      type: "input_audio_buffer.append",
+      audio: audioData, // Base64 PCM16
+    };
+
+    connection.openaiWs.send(JSON.stringify(audioAppend));
+  } catch (error: any) {
+    console.error("[WS] Error handling audio chunk:", error);
+  }
+}
+
+/**
+ * Handle manual audio commit (when VAD is disabled)
+ * User manually triggers commit when they're done speaking
+ */
+async function handleManualCommit(connection: ClientConnection) {
+  if (!connection.openaiWs || connection.openaiWs.readyState !== WebSocket.OPEN) {
+    console.error("[WS] OpenAI connection not ready");
+    return;
+  }
+
+  if (!connection.isVoiceCallActive) {
+    console.warn("[WS] Manual commit requested but voice call is not active");
+    return;
+  }
+
+  if (!connection.hasAudioInBuffer) {
+    console.log("[WS] No audio in buffer to commit");
+    return;
+  }
+
+  if (connection.isResponseInProgress) {
+    console.log("[WS] Response already in progress, marking buffer for commit after current response");
+    connection.pendingBufferCommit = true;
+    return;
+  }
+
+  try {
+    console.log("[WS] Manually committing audio buffer and creating response");
+
+    // DON'T send placeholder - wait for actual transcript from OpenAI
+
+    // Commit the audio buffer
+    connection.openaiWs.send(JSON.stringify({
+      type: "input_audio_buffer.commit"
+    }));
+
+    // Create a response with audio modality
+    connection.openaiWs.send(JSON.stringify({
+      type: "response.create",
+      response: {
+        modalities: ["audio", "text"],
+        instructions: "Respond to the user's question as M3alem, the educational tutor.",
+      }
+    }));
+
+    connection.hasAudioInBuffer = false;
+    connection.isResponseInProgress = true;
+  } catch (error: any) {
+    console.error("[WS] Error handling manual commit:", error);
   }
 }

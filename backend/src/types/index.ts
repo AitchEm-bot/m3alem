@@ -27,6 +27,9 @@ export interface WSMessage {
   use_rag?: boolean;
   sources?: RAGQueryResult[];
   error?: string;
+  audio?: string; // base64 encoded audio data
+  audio_transcript?: string; // transcription of audio
+  is_spoken?: boolean; // flag to mark spoken messages
 }
 
 export type WSMessageType =
@@ -38,7 +41,13 @@ export type WSMessageType =
   | "partial_response"
   | "final_response"
   | "rag_sources"
-  | "error";
+  | "error"
+  | "start_voice_call"
+  | "end_voice_call"
+  | "audio_chunk"
+  | "audio_response"
+  | "audio_transcript"
+  | "commit_audio";
 
 export interface IngestResult {
   success: boolean;
@@ -71,6 +80,7 @@ export interface Message {
   sources?: RAGQueryResult[];
   image_data?: string;
   image_filename?: string;
+  is_spoken?: boolean; // flag to indicate message was spoken (voice call)
   created_at: Date;
 }
 

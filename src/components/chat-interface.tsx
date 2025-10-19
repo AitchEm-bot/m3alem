@@ -10,6 +10,8 @@ import { SourcesPanel } from "@/components/SourcesPanel"
 import { ConversationSidebar } from "@/components/ConversationSidebar"
 import { useRealtime, ChatMessage as ChatMessageType } from "@/hooks/useRealtime"
 import { useConversations } from "@/hooks/useConversations"
+import { useSTT } from "@/hooks/useSTT"
+import { useVoiceCall } from "@/hooks/useVoiceCall"
 import { Sparkles } from "lucide-react"
 import { useRouter } from "next/navigation"
 
@@ -29,16 +31,19 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
       setIsLoadingConversation(true)
       fetchConversation(conversationId).then((conv) => {
         if (conv) {
+          console.log("[ChatInterface] Loaded conversation with", conv.messages.length, "messages")
           const formattedMessages: ChatMessageType[] = conv.messages.map((msg) => ({
             id: msg.id,
             role: msg.role,
             content: msg.content,
-            timestamp: msg.created_at,
+            timestamp: new Date(msg.created_at),
             sources: msg.sources,
             imageData: msg.image_data,
             imageFilename: msg.image_filename,
             isPartial: false,
+            isSpoken: msg.is_spoken,
           }))
+          console.log("[ChatInterface] Setting initial messages:", formattedMessages)
           setInitialMessages(formattedMessages)
         }
         setIsLoadingConversation(false)
@@ -57,6 +62,11 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
     conversationId: currentConversationId,
     sendMessage,
     sendImage,
+    startVoiceCall,
+    endVoiceCall,
+    sendAudioChunk,
+    commitAudio,
+    wsClient,
   } = useRealtime({
     conversationId,
     initialMessages,
@@ -67,9 +77,89 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
     .filter((msg) => msg.role === "assistant" && msg.sources)
     .slice(-1)[0]?.sources || []
 
+  // Initialize STT hook for mic button
+  const {
+    isRecording,
+    transcript,
+    toggleRecording,
+    clearTranscript,
+  } = useSTT()
+
+  // Initialize voice call hook
+  const {
+    isCallActive,
+    isSpeaking,
+    error: voiceError,
+    startCall,
+    endCall,
+    handleAudioResponse,
+  } = useVoiceCall({
+    onAudioResponse: (audioBase64) => {
+      // Audio playback handled internally by useVoiceCall
+    },
+    onTranscript: (text, isUser) => {
+      // Transcripts are handled by useRealtime via WebSocket
+    },
+    onError: (error) => {
+      console.error("[Voice] Error:", error);
+    },
+  })
+
+  // Set up audio response handler when wsClient is available
+  useEffect(() => {
+    if (!wsClient) return;
+
+    const audioHandler = (message: any) => {
+      if (message.audio) {
+        console.log("[ChatInterface] Received audio response, chunk length:", message.audio.length);
+        handleAudioResponse(message.audio);
+      }
+    };
+
+    // Register handler
+    wsClient.on("audio_response", audioHandler);
+
+    // Cleanup: remove handler when component unmounts or dependencies change
+    return () => {
+      wsClient.off("audio_response", audioHandler);
+      console.log("[ChatInterface] Cleaned up audio response handler");
+    };
+  }, [wsClient, handleAudioResponse])
+
   const handleVoiceToggle = (isActive: boolean) => {
-    // Voice mode not implemented yet
+    // Legacy voice mode - not used anymore
     console.log("Voice mode:", isActive ? "activated" : "deactivated")
+  }
+
+  const handleMicClick = () => {
+    if (isRecording) {
+      // Stop recording and send transcript as message
+      toggleRecording()
+      if (transcript) {
+        sendMessage(transcript)
+        clearTranscript()
+      }
+    } else {
+      // Start recording
+      toggleRecording()
+    }
+  }
+
+  const handleCallToggle = async (shouldStart: boolean) => {
+    if (shouldStart) {
+      // Start voice call
+      startVoiceCall() // Send WS message to backend
+      await startCall(sendAudioChunk) // Start local audio capture
+    } else {
+      // End voice call
+      endVoiceCall() // Send WS message to backend
+      endCall() // Stop local audio capture
+    }
+  }
+
+  const handleManualCommit = () => {
+    console.log("[ChatInterface] Manual commit triggered");
+    commitAudio();
   }
 
   const handleImageUpload = (file: File, caption?: string) => {
@@ -190,6 +280,11 @@ export function ChatInterface({ conversationId = null }: ChatInterfaceProps) {
                 onSendMessage={sendMessage}
                 onVoiceToggle={handleVoiceToggle}
                 onImageUpload={handleImageUpload}
+                onMicClick={handleMicClick}
+                onCallToggle={handleCallToggle}
+                onManualCommit={handleManualCommit}
+                isRecording={isRecording}
+                isCallActive={isCallActive}
                 isLoading={isLoading}
               />
             </Card>
